@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./ERC721/ERC721RB.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
@@ -61,6 +61,9 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
 
     // Mapping of token
     mapping(uint256 => bool) public hatched;
+
+    // Staked state for Token ID
+    mapping(uint256 => bool) public staked;
 
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
@@ -291,4 +294,14 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
 
     // Just because you never know
     receive() external payable {}
+
+    // Override to block transfers for staked Tokens
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 tokenId
+    ) internal override {
+        require(!staked[tokenId], "You can't transfer staked tokens!");
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
 }
