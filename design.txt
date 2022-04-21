@@ -1,0 +1,11 @@
+Design:
+	1. ERC721 Collection for Gen. 1 Eggs and Birds: Staking for the egg to hash will be non-custodial
+    (NFT stays in user wallet) and will happen in this SC. Staking for Breeding will be custodial and will happen in the Gen. 2 Smart Contract
+	2. ERC721 Collection for Gen. 2 Eggs and Birds: Staking for the egg to hash will be non-custodial(NFT stays in user wallet) and will happen in this Sc. 
+    Staking for Breeding will be custodial and will happen in the Gen. 3 Smart Contract.
+ 	3. And so on…
+	4. Elemental Stones will be a 3rd SC, users can just buy from here.(if you want different designs for each stone we’ll make it ERC721,
+    if stones are like a currency, so all the same we’ll make it ERC1155).
+	5. ERC721 SC for Gen. 1 Elemental Eggs and Birds. To mint, users have to Stake here one Elemental Stone and 2 Birds => Elemental Egg.
+    Staking for the egg to hash will be non-custodial(NFT stays in user wallet) and will happen in this Sc. Staking for Breeding will be custodial 
+    and will happen in the Gen. 2 Elemental Birds Smart Contract.

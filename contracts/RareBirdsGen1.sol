@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -13,11 +14,18 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
 
     Counters.Counter private supply;
 
+    // Interfaces for ERC20 and ERC721
+    IERC20 public rewardsToken;
+
     // Time to hatch without Mango payment
     uint256 public constant timeToHatchFree = 2592000;
 
     // Time to hatch with Mango payment
     uint256 public constant timeToHatchMango = 604800;
+
+    // Rewards per hour per token deposited in wei.
+    // Rewards are cumulated once every hour.
+    uint256 private rewardsPerHour = 100000;
 
     // Uri for the Gen. 1 Eggs
     // Used in the format: "ipfs://your_uri/".
@@ -56,8 +64,11 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
     // Mapping of address to bool that determins wether the address already claimed the whitelist mint
     mapping(address => bool) public whitelistClaimed;
 
-    // Mapping of tokenID to time of Hatch
-    mapping(uint256 => uint256) public timeToHatch;
+    // Mapping of tokenID to time of Stake
+    mapping(uint256 => uint256) public timeOfStake;
+
+    // Mapping of User Address to Staker info
+    mapping(address => Staker) public stakers;
 
     // Mapping of token
     mapping(uint256 => bool) public hatched;
@@ -65,32 +76,91 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
     // Staked state for Token ID
     mapping(uint256 => bool) public staked;
 
+    // Staker info
+    struct Staker {
+        // Token IDs staked by staker
+        uint256[] tokenIdsStaked;
+        // Last time of details update for this User
+        uint256 timeOfLastUpdate;
+        // Calculated, but unclaimed rewards for the User. The rewards are
+        // calculated each time the user writes to the Smart Contract
+        uint256 unclaimedRewards;
+    }
+
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor() ERC721("Rare Birds", "BIRDS") {}
-
-    // Staking function
-    function stake(uint256 _tokenId, bool _mangoPayment) public nonReentrant {
-        staked[_tokenId] = true;
-        if (!hatched[_tokenId]) {
-            if (_mangoPayment) {
-                // add payment logic here
-                timeToHatch[_tokenId] = block.timestamp + timeToHatchMango;
-            } else {
-                timeToHatch[_tokenId] = block.timestamp + timeToHatchFree;
-            }
-        }
-        //insert staking logic here
+    constructor(IERC20 _rewardToken) ERC721("Rare Birds", "BIRDS") {
+        rewardsToken = _rewardToken;
     }
 
-    function hatchEgg(uint256 _tokenId) external {
+    // Staking function
+    function stake(uint256[] calldata _tokenIds) public nonReentrant {
+        if (stakers[msg.sender].tokenIdsStaked.length > 0) {
+            uint256 rewards = calculateRewards(msg.sender);
+            stakers[msg.sender].unclaimedRewards += rewards;
+        }
+        for (uint256 i; i < _tokenIds.length; ++i) {
+            require(
+                ownerOf(_tokenIds[i]) == msg.sender,
+                "Can't stake tokens you don't own!"
+            );
+            staked[_tokenIds[i]] = true;
+            stakers[msg.sender].tokenIdsStaked.push(_tokenIds[i]);
+            timeOfStake[_tokenIds[i]] = block.timestamp;
+        }
+        stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+    }
+
+    // Check if user has any ERC721 Tokens Staked and if he tried to withdraw,
+    // calculate the rewards and store them in the unclaimedRewards and for each
+    // ERC721 Token in param: check if msg.sender is the original staker, decrement
+    // the amountStaked of the user and transfer the ERC721 token back to them.
+    function withdraw(uint256[] memory _tokenIds) external nonReentrant {
+        require(
+            stakers[msg.sender].tokenIdsStaked.length > 0,
+            "You have no tokens staked"
+        );
+        uint256 rewards = calculateRewards(msg.sender);
+        stakers[msg.sender].unclaimedRewards += rewards;
+        for (uint256 i; i < _tokenIds.length; ++i) {
+            require(
+                ownerOf(_tokenIds[i]) == msg.sender,
+                "You can only wihtdraw your own tokens!"
+            );
+            for (
+                uint256 j;
+                j < stakers[msg.sender].tokenIdsStaked.length;
+                ++j
+            ) {
+                if (stakers[msg.sender].tokenIdsStaked[j] == _tokenIds[i]) {
+                    stakers[msg.sender].tokenIdsStaked[j] = stakers[msg.sender]
+                        .tokenIdsStaked[
+                            stakers[msg.sender].tokenIdsStaked.length - 1
+                        ];
+                    stakers[msg.sender].tokenIdsStaked.pop();
+                }
+            }
+            staked[_tokenIds[i]] = false;
+        }
+        stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+    }
+
+    function hatchEgg(uint256 _tokenId, bool _mangoPayment) external {
         require(staked[_tokenId] == true, "Egg not staked");
         require(!hatched[_tokenId], "You already have a bird!");
-        require(
-            block.timestamp > timeToHatch[_tokenId],
-            "You need to wait more for egg to hatch!"
-        );
+        if (_mangoPayment) {
+            require(
+                block.timestamp > timeOfStake[_tokenId] + timeToHatchMango,
+                "You need to wait more for egg to hatch!"
+            );
+            // ToDo: Add payment logic here
+        } else {
+            require(
+                block.timestamp > timeOfStake[_tokenId] + timeToHatchFree,
+                "You need to wait more for egg to hatch!"
+            );
+        }
         hatched[_tokenId] = true;
     }
 
@@ -153,6 +223,29 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         onlyOwner
     {
         _mintLoop(_receiver, _mintAmount);
+    }
+
+    // Calculate rewards for the msg.sender, check if there are any rewards
+    // claim, set unclaimedRewards to 0 and transfer the ERC20 Reward token
+    // to the user.
+    function claimRewards() external nonReentrant {
+        uint256 rewards = calculateRewards(msg.sender) +
+            stakers[msg.sender].unclaimedRewards;
+        require(rewards > 0, "You have no rewards to claim");
+        stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        stakers[msg.sender].unclaimedRewards = 0;
+        // ToDo: Add payment logic here
+    }
+
+    // Returns the information of _user address deposit:
+    // the amount of tokens staked, the rewards available
+    // for withdrawal and the Token Ids staked
+    function userStakeInfo(address _user)
+        public
+        view
+        returns (uint256 _availableRewards, uint256[] memory _tokenIdsStaked)
+    {
+        return (availableRewards(_user), stakers[_user].tokenIdsStaked);
     }
 
     // Returns the Token Id for Tokens owned by the specified address
@@ -290,6 +383,27 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         } else {
             return uriEggs;
         }
+    }
+
+    // Return available Mango rewards for user.
+    function availableRewards(address _user) internal view returns (uint256) {
+        uint256 _rewards = stakers[_user].unclaimedRewards +
+            calculateRewards(_user);
+        return _rewards;
+    }
+
+    // Calculate rewards for param _staker by calculating the time passed
+    // since last update in hours and mulitplying it to ERC721 Tokens Staked
+    // and rewardsPerHour.
+    function calculateRewards(address _staker)
+        internal
+        view
+        returns (uint256 _rewards)
+    {
+        return (((
+            ((block.timestamp - stakers[_staker].timeOfLastUpdate) *
+                stakers[msg.sender].tokenIdsStaked.length)
+        ) * rewardsPerHour) / 3600);
     }
 
     // Just because you never know
