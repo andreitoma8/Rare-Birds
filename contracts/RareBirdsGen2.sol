@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
@@ -16,12 +17,19 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
 
     // Interfaces for ERC20 and ERC721
     IERC20 public rewardsToken;
+    IERC721 public genOne;
 
     // Time to hatch without Mango payment
     uint256 public constant timeToHatchFree = 2592000;
 
     // Time to hatch with Mango payment
     uint256 public constant timeToHatchMango = 604800;
+
+    // Time to breed without Mango payment
+    uint256 public constant timeToBreedFree = 2592000;
+
+    // Time to breed with Mango payment
+    uint256 public constant timeToBreedMango = 604800;
 
     // Rewards per hour per token deposited in wei.
     // Rewards are cumulated once every hour.
@@ -52,6 +60,9 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
     // Mapping of User Address to Staker info
     mapping(address => Staker) public stakers;
 
+    // Mapping of User Address to Breeder struct
+    mapping(address => Breeder) public breeders;
+
     // Mapping of token
     mapping(uint256 => bool) public hatched;
 
@@ -69,11 +80,23 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         uint256 unclaimedRewards;
     }
 
+    struct Breeder {
+        // Token Id of mom
+        uint256 mom;
+        // Token Id of dad
+        uint256 dad;
+        // Time of breeding start
+        uint256 breedingStart;
+    }
+
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken) ERC721("Rare Birds", "BIRDS") {
+    constructor(IERC20 _rewardToken, IERC721 _genOne)
+        ERC721("Rare Birds", "BIRDS")
+    {
         rewardsToken = _rewardToken;
+        genOne = _genOne;
     }
 
     // Staking function
@@ -152,8 +175,30 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Stake two Gen 1 Birds to recieve a Gen. 2 Egg.
-    function stake(uint256 _tokenIdMom, uint256 _tokenIdDad) public {
+    function breed(uint256 _tokenIdMom, uint256 _tokenIdDad) external {
         //ToDo: Add breeding logic here
+        genOne.transferFrom(msg.sender, address(this), _tokenIdMom);
+        genOne.transferFrom(msg.sender, address(this), _tokenIdDad);
+        breeders[msg.sender].mom = _tokenIdMom;
+        breeders[msg.sender].dad = _tokenIdDad;
+        breeders[msg.sender].breedingStart = block.timestamp;
+        _mintLoop(msg.sender, 1);
+    }
+
+    // Call function to finish breeding and mint the egg
+    function mintEgg(bool _mangoPayment) external {
+        if (_mangoPayment) {
+            require(
+                block.timestamp >=
+                    breeders[msg.sender].breedingStart + timeToBreedMango
+            );
+            //ToDo: Add payment logic here
+        } else {
+            require(
+                block.timestamp >=
+                    breeders[msg.sender].breedingStart + timeToBreedFree
+            );
+        }
         _mintLoop(msg.sender, 1);
     }
 
