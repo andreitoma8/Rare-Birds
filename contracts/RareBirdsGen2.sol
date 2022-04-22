@@ -209,6 +209,30 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
             );
         }
         nfts[_tokenId].hatched = true;
+        // Enable breeding for user if he has 2 or more Birds staked after hatch
+        if (
+            stakers[msg.sender].tokenIdsStaked.length > 1 &&
+            !stakers[msg.sender].canBreed
+        ) {
+            // If user has 2 or more birds staked, activate breeding and
+            // breeding timer for user.
+            uint256 stakedBirds = 0;
+            for (
+                uint256 i;
+                i < stakers[msg.sender].tokenIdsStaked.length;
+                ++i
+            ) {
+                if (
+                    nfts[stakers[msg.sender].tokenIdsStaked[i]].hatched == true
+                ) {
+                    stakedBirds++;
+                }
+            }
+            if (stakedBirds >= 2) {
+                stakers[msg.sender].timeOfBreedingStart = block.timestamp;
+                stakers[msg.sender].canBreed = true;
+            }
+        }
     }
 
     function breed(bool _mangoPayment) external {
