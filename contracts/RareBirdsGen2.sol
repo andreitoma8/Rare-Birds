@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
+// Creator: andreitoma8
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "../interfaces/IRareBirds.sol";
 
-contract RareBirds is ERC721, Ownable, ReentrancyGuard {
+contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
@@ -17,7 +17,10 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
 
     // Interfaces for ERC20 and ERC721
     IERC20 public rewardsToken;
-    IERC721 public genOne;
+    IRareBirds public genThree;
+
+    // Address of the Gen. 1 Smart Contract
+    address genOne;
 
     // Time to hatch without Mango payment
     uint256 public constant timeToHatchFree = 2592000;
@@ -40,7 +43,7 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
     string internal uriEggs;
 
     // Uri for the Gen. 1 Birds
-    string internal uirBirds;
+    string internal uriBirds;
 
     // The format of your metadata files
     string internal uriSuffix = ".json";
@@ -60,15 +63,6 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
     // Mapping of User Address to Staker info
     mapping(address => Staker) public stakers;
 
-    // Mapping of User Address to Breeder struct
-    mapping(address => Breeder) public breeders;
-
-    // Mapping of token
-    mapping(uint256 => bool) public hatched;
-
-    // Staked state for Token ID
-    mapping(uint256 => bool) public staked;
-
     // Staker info
     struct Staker {
         // Token IDs staked by staker
@@ -78,21 +72,26 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         // Calculated, but unclaimed rewards for the User. The rewards are
         // calculated each time the user writes to the Smart Contract
         uint256 unclaimedRewards;
+        // User time of last deposit that can be breeded
+        uint256 timeOfBreedingStart;
+        // Can breed
+        bool canBreed;
     }
 
-    struct Breeder {
-        // Token Id of mom
-        uint256 mom;
-        // Token Id of dad
-        uint256 dad;
-        // Time of breeding start
-        uint256 breedingStart;
+    // Struct NFTs
+    struct NFT {
+        // True if Token is a brid, False if Token is an egg
+        bool hatched;
+        // State of Token Id
+        bool staked;
     }
+
+    mapping(uint256 => NFT) nfts;
 
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken, IERC721 _genOne)
+    constructor(IERC20 _rewardToken, address _genOne)
         ERC721("Rare Birds", "BIRDS")
     {
         rewardsToken = _rewardToken;
@@ -110,11 +109,18 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
                 ownerOf(_tokenIds[i]) == msg.sender,
                 "Can't stake tokens you don't own!"
             );
-            staked[_tokenIds[i]] = true;
+            nfts[_tokenIds[i]].staked = true;
             stakers[msg.sender].tokenIdsStaked.push(_tokenIds[i]);
             timeOfStake[_tokenIds[i]] = block.timestamp;
         }
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        if (
+            stakers[msg.sender].tokenIdsStaked.length > 1 &&
+            !stakers[msg.sender].canBreed
+        ) {
+            stakers[msg.sender].timeOfBreedingStart = block.timestamp;
+            stakers[msg.sender].canBreed = true;
+        }
     }
 
     // Check if user has any ERC721 Tokens Staked and if he tried to withdraw,
@@ -146,14 +152,17 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
                     stakers[msg.sender].tokenIdsStaked.pop();
                 }
             }
-            staked[_tokenIds[i]] = false;
+            nfts[_tokenIds[i]].staked = false;
         }
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        if (stakers[msg.sender].tokenIdsStaked.length < 2) {
+            stakers[msg.sender].canBreed = false;
+        }
     }
 
     function hatchEgg(uint256 _tokenId, bool _mangoPayment) external {
-        require(staked[_tokenId] == true, "Egg not staked");
-        require(!hatched[_tokenId], "You already have a bird!");
+        require(nfts[_tokenId].staked == true, "Egg not staked");
+        require(!nfts[_tokenId].hatched, "You already have a bird!");
         if (_mangoPayment) {
             require(
                 block.timestamp > timeOfStake[_tokenId] + timeToHatchMango,
@@ -166,7 +175,29 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
                 "You need to wait more for egg to hatch!"
             );
         }
-        hatched[_tokenId] = true;
+        nfts[_tokenId].hatched = true;
+    }
+
+    function breed(bool _mangoPayment) external {
+        require(
+            stakers[msg.sender].canBreed == true,
+            "You don't have enough staked birds to breed"
+        );
+        if (_mangoPayment) {
+            require(
+                block.timestamp >
+                    stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
+                "Not enought time passed!"
+            );
+            // ToDo: Add payment logic here
+        } else {
+            require(
+                block.timestamp >
+                    stakers[msg.sender].timeOfBreedingStart + timeToBreedFree,
+                "Not enough time passed!"
+            );
+        }
+        genThree.mint();
     }
 
     // Returns the current supply of the collection
@@ -174,32 +205,26 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         return supply.current();
     }
 
-    // Stake two Gen 1 Birds to recieve a Gen. 2 Egg.
-    function breed(uint256 _tokenIdMom, uint256 _tokenIdDad) external {
-        //ToDo: Add breeding logic here
-        genOne.transferFrom(msg.sender, address(this), _tokenIdMom);
-        genOne.transferFrom(msg.sender, address(this), _tokenIdDad);
-        breeders[msg.sender].mom = _tokenIdMom;
-        breeders[msg.sender].dad = _tokenIdDad;
-        breeders[msg.sender].breedingStart = block.timestamp;
+    // Mint function
+    function mint(uint256 _mintAmount) public payable {
+        require(msg.sender == genOne, "Only Gen 1 SC can mint!");
+        require(
+            supply.current() + _mintAmount <= maxSupply,
+            "Max supply exceeded!"
+        );
         _mintLoop(msg.sender, 1);
     }
 
-    // Call function to finish breeding and mint the egg
-    function mintEgg(bool _mangoPayment) external {
-        if (_mangoPayment) {
-            require(
-                block.timestamp >=
-                    breeders[msg.sender].breedingStart + timeToBreedMango
-            );
-            //ToDo: Add payment logic here
-        } else {
-            require(
-                block.timestamp >=
-                    breeders[msg.sender].breedingStart + timeToBreedFree
-            );
-        }
-        _mintLoop(msg.sender, 1);
+    // Mint function for owner that allows for free minting for a specified address
+    function mintForAddress(uint256 _mintAmount, address _receiver)
+        public
+        onlyOwner
+    {
+        require(
+            supply.current() + _mintAmount <= maxSupply,
+            "Max supply exceeded!"
+        );
+        _mintLoop(_receiver, _mintAmount);
     }
 
     // Calculate rewards for the msg.sender, check if there are any rewards
@@ -278,6 +303,11 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
                 : "";
     }
 
+    // Set the next gen SC interface:
+    function setNextGen(IRareBirds _address) public onlyOwner {
+        genThree = _address;
+    }
+
     // Changes the Revealed State
     function setRevealed(bool _state) public onlyOwner {
         revealed = _state;
@@ -298,7 +328,7 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         onlyOwner
     {
         uriEggs = _uriEggs;
-        uirBirds = _uriBirds;
+        uriBirds = _uriBirds;
     }
 
     // Set the uri sufix for your metadata file type
@@ -308,8 +338,7 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
 
     // Withdraw ETH after sale
     function withdraw() public onlyOwner {
-        (bool os, ) = payable(owner()).call{value: address(this).balance}("");
-        require(os);
+        // ToDo: Add mango withdraw logic here
     }
 
     // Helper function
@@ -327,8 +356,8 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         virtual
         returns (string memory)
     {
-        if (hatched[_tokenId]) {
-            return uirBirds;
+        if (nfts[_tokenId].hatched) {
+            return uriBirds;
         } else {
             return uriEggs;
         }
@@ -364,7 +393,7 @@ contract RareBirds is ERC721, Ownable, ReentrancyGuard {
         address to,
         uint256 tokenId
     ) internal override {
-        require(!staked[tokenId], "You can't transfer staked tokens!");
+        require(!nfts[tokenId].staked, "You can't transfer staked tokens!");
         super._beforeTokenTransfer(from, to, tokenId);
     }
 }

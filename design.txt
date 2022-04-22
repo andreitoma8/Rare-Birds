@@ -9,3 +9,6 @@ Design:
 	5. ERC721 SC for Gen. 1 Elemental Eggs and Birds. To mint, users have to Stake here one Elemental Stone and 2 Birds => Elemental Egg.
     Staking for the egg to hash will be non-custodial(NFT stays in user wallet) and will happen in this Sc. Staking for Breeding will be custodial 
     and will happen in the Gen. 2 Elemental Birds Smart Contract.
+
+    1. Stake Egg for 7/30 days to be able to call the hatch function.
+    2. Stake 2 or more birds for 7/3 days to call the breed function.
