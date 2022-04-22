@@ -111,7 +111,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         rewardsToken = _rewardToken;
     }
 
-    // Staking function
+    // Staking function.
     function stake(uint256[] calldata _tokenIds) public nonReentrant {
         if (stakers[msg.sender].tokenIdsStaked.length > 0) {
             uint256 rewards = calculateRewards(msg.sender);
@@ -131,8 +131,24 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
             stakers[msg.sender].tokenIdsStaked.length > 1 &&
             !stakers[msg.sender].canBreed
         ) {
-            stakers[msg.sender].timeOfBreedingStart = block.timestamp;
-            stakers[msg.sender].canBreed = true;
+            // If user has 2 or more birds staked, activate breeding and
+            // breeding timer for user.
+            uint256 stakedBirds = 0;
+            for (
+                uint256 i;
+                i < stakers[msg.sender].tokenIdsStaked.length;
+                ++i
+            ) {
+                if (
+                    nfts[stakers[msg.sender].tokenIdsStaked[i]].hatched == true
+                ) {
+                    stakedBirds++;
+                }
+            }
+            if (stakedBirds >= 2) {
+                stakers[msg.sender].timeOfBreedingStart = block.timestamp;
+                stakers[msg.sender].canBreed = true;
+            }
         }
     }
 
@@ -168,11 +184,13 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
             nfts[_tokenIds[i]].staked = false;
         }
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        //
         if (stakers[msg.sender].tokenIdsStaked.length < 2) {
             stakers[msg.sender].canBreed = false;
         }
     }
 
+    // Function called to turn egg into bird
     function hatchEgg(uint256 _tokenId, bool _mangoPayment) external {
         require(nfts[_tokenId].staked == true, "Egg not staked");
         require(!nfts[_tokenId].hatched, "You already have a bird!");
@@ -191,6 +209,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         nfts[_tokenId].hatched = true;
     }
 
+    // Function called to breed and mint a new egg in Gen. 2 Collection
     function breed(bool _mangoPayment) external {
         require(
             stakers[msg.sender].canBreed == true,
