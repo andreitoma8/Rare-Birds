@@ -187,6 +187,23 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         //
         if (stakers[msg.sender].tokenIdsStaked.length < 2) {
             stakers[msg.sender].canBreed = false;
+        } else {
+            // If user has less than 2 birds staked, deactivate breeding for user.
+            uint256 stakedBirds = 0;
+            for (
+                uint256 i;
+                i < stakers[msg.sender].tokenIdsStaked.length;
+                ++i
+            ) {
+                if (
+                    nfts[stakers[msg.sender].tokenIdsStaked[i]].hatched == true
+                ) {
+                    stakedBirds++;
+                }
+            }
+            if (stakedBirds < 2) {
+                stakers[msg.sender].canBreed = false;
+            }
         }
     }
 
@@ -230,6 +247,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
             );
         }
         genTwo.mint();
+        stakers[msg.sender].canBreed = false;
     }
 
     // Modifier that ensures the maximum supply and
