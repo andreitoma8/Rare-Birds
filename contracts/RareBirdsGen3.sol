@@ -10,7 +10,7 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
 
-contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
+contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
@@ -18,7 +18,10 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
 
     // Interfaces for ERC20 and ERC721
     IERC20 public rewardsToken;
-    IRareBirds public genTwo;
+    IRareBirds public genFour;
+
+    // Address of the Gen. 1 Smart Contract
+    address genTwo;
 
     // Time to hatch without Mango payment
     uint256 public constant timeToHatchFree = 2592000;
@@ -52,11 +55,20 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Price of one NFT
     uint256 public cost;
 
-    // The maximum supply of your collection
-    uint256 public maxSupply;
+    // The maximum supply of your collection for sale
+    uint256 public maxSupplyBuy;
+
+    // The amount of of tokens minted by buying
+    uint256 public mintedFromBuy;
 
     // The maximum mint amount allowed per transaction
     uint256 public maxMintAmountPerTx;
+
+    // Maximum number of mints from breeding
+    uint256 public maxSupplyBree;
+
+    // The amount of tokens minted from breeding
+    uint256 public mintedFromBreed;
 
     // The paused state for minting
     bool public paused = true;
@@ -270,7 +282,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                 "Not enough time passed!"
             );
         }
-        genTwo.mintFromBreeding();
+        genFour.mint();
         stakers[msg.sender].canBreed = false;
     }
 
@@ -282,7 +294,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
             "Invalid mint amount!"
         );
         require(
-            supply.current() + _mintAmount <= maxSupply,
+            supply.current() + _mintAmount <= maxSupplyBuy,
             "Max supply exceeded!"
         );
         _;
@@ -294,7 +306,22 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Mint function
-    function mint(uint256 _mintAmount) public mintCompliance(_mintAmount) {
+    function mintFromBreeding() public {
+        require(msg.sender == genTwo, "Only Gen 1 SC can mint!");
+        mintedFromBreed++;
+        require(
+            mintedFromBreed <= maxSupplyBree,
+            "All the tokens available trough breeding have been minted!"
+        );
+        _mintLoop(msg.sender, 1);
+    }
+
+    // Mint function
+    function mint(uint256 _mintAmount)
+        public
+        payable
+        mintCompliance(_mintAmount)
+    {
         require(!paused, "The contract is paused!");
         // ToDo: Add payment logic here
         _mintLoop(msg.sender, _mintAmount);
@@ -310,7 +337,6 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(presale, "Presale is not active.");
-        // ToDo: Add payment logic here
         require(!whitelistClaimed[msg.sender], "Address has already claimed.");
         require(_mintAmount < 3);
         bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
@@ -366,7 +392,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         uint256 ownedTokenIndex = 0;
 
         while (
-            ownedTokenIndex < ownerTokenCount && currentTokenId <= maxSupply
+            ownedTokenIndex < ownerTokenCount &&
+            currentTokenId <= (maxSupplyBree + maxSupplyBuy)
         ) {
             address currentTokenOwner = ownerOf(currentTokenId);
 
@@ -409,7 +436,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
 
     // Set the next gen SC interface:
     function setNextGen(IRareBirds _address) public onlyOwner {
-        genTwo = _address;
+        genFour = _address;
     }
 
     // Changes the Revealed State

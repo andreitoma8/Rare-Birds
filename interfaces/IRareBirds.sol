@@ -3,5 +3,5 @@
 pragma solidity ^0.8.0;
 
 interface IRareBirds {
-    function mint() external;
+    function mintFromBreeding() external;
 }
