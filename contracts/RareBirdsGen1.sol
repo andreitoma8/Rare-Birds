@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
+import "../interfaces/IElementalStones.sol";
 
 contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
@@ -19,6 +20,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Interfaces for ERC20 and ERC721
     IERC20 public rewardsToken;
     IRareBirds public genTwo;
+    IRareBirds public elementalGenOne;
+    IElementalStones public elementalStones;
 
     // Time to hatch without Mango payment
     uint256 public constant timeToHatchFree = 2592000;
@@ -107,7 +110,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken) ERC721("Rare Birds", "BIRDS") {
+    constructor(IERC20 _rewardToken) ERC721("Rare Birds Gen. 1", "RB1") {
         rewardsToken = _rewardToken;
     }
 
@@ -250,8 +253,13 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         }
     }
 
+    // Function that returns true if Token Id is bird and flase if Token Id is egg
+    function isBird(uint256 _tokenId) public view returns (bool) {
+        return nfts[_tokenId].hatched;
+    }
+
     // Function called to breed and mint a new egg in Gen. 2 Collection
-    function breed(bool _mangoPayment) external {
+    function breed(bool _mangoPayment, uint256 _elemental) external {
         require(
             stakers[msg.sender].canBreed == true,
             "You don't have enough staked birds to breed"
@@ -270,8 +278,13 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                 "Not enough time passed!"
             );
         }
-        genTwo.mintFromBreeding();
-        stakers[msg.sender].canBreed = false;
+        if (_elemental == 0) {
+            genTwo.mintFromBreeding();
+        } else {
+            elementalStones.burn(_elemental);
+            elementalGenOne.mintFromBreeding();
+        }
+        stakers[msg.sender].timeOfBreedingStart = block.timestamp;
     }
 
     // Modifier that ensures the maximum supply and
@@ -407,9 +420,19 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                 : "";
     }
 
-    // Set the next gen SC interface:
+    // Set the next gen Smart Contract
     function setNextGen(IRareBirds _address) public onlyOwner {
         genTwo = _address;
+    }
+
+    // Set the Elemental Stones Smart Contract
+    function setElementalStones(IElementalStones _address) external onlyOwner {
+        elementalStones = _address;
+    }
+
+    // Set the Elemental Birds Gen 1 Smart Contract
+    function setElementalBirdsGen1(IRareBirds _address) external onlyOwner {
+        elementalGenOne = _address;
     }
 
     // Changes the Revealed State

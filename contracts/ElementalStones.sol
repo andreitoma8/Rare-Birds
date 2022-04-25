@@ -1,16 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
+import "../interfaces/IRareBirds.sol";
 
-contract ElementalStones is ERC721, Ownable {
+contract ElementalStones is ERC721, Ownable, ReentrancyGuard, ERC721Burnable {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
     Counters.Counter private supply;
+
+    // Interfaces for ERC20 and ERC721
+    IERC20 public rewardsToken;
+    IRareBirds public genOne;
 
     // The URI of your IPFS/hosting server for the metadata folder.
     // Used in the format: "ipfs://your_uri/".
@@ -31,6 +39,16 @@ contract ElementalStones is ERC721, Ownable {
     // The maximum mint amount allowed per transaction
     uint256 public maxMintAmountPerTx = 10;
 
+    // Time to breed without Mango payment
+    uint256 public constant timeToBreedFree = 2592000;
+
+    // Time to breed with Mango payment
+    uint256 public constant timeToBreedMango = 604800;
+
+    // Rewards per hour per token deposited in wei.
+    // Rewards are cumulated once every hour.
+    uint256 private rewardsPerHour = 100000;
+
     // The paused state for minting
     bool public paused = true;
 
@@ -49,9 +67,128 @@ contract ElementalStones is ERC721, Ownable {
     // Mapping of supply for each type
     mapping(uint256 => uint256) public typeSupply;
 
+    // Mapping of User Address to Staker info
+    mapping(address => Staker) public stakers;
+
+    // Staker info
+    struct Staker {
+        // Token IDs staked by staker
+        uint256[] tokenIdsStaked;
+        // Last time of details update for this User
+        uint256 timeOfLastUpdate;
+        // Calculated, but unclaimed rewards for the User. The rewards are
+        // calculated each time the user writes to the Smart Contract
+        uint256 unclaimedRewards;
+        // User time of last deposit that can be breeded
+        uint256 timeOfBreedingStart;
+        // Can breed
+        bool canBreed;
+    }
+
+    // Mapping of tokenID to time of Stake
+    mapping(uint256 => uint256) public timeOfStake;
+
     // Constructor function that sets name and symbol
     // of the collection
     constructor() ERC721("Elemental Stones", "STONE") {}
+
+    // Staking function.
+    function stake(uint256[] calldata _tokenIds) public nonReentrant {
+        if (stakers[msg.sender].tokenIdsStaked.length > 0) {
+            uint256 rewards = calculateRewards(msg.sender);
+            stakers[msg.sender].unclaimedRewards += rewards;
+        }
+        for (uint256 i; i < _tokenIds.length; ++i) {
+            require(
+                ownerOf(_tokenIds[i]) == msg.sender,
+                "Can't stake tokens you don't own!"
+            );
+            // nfts[_tokenIds[i]].staked = true;
+            stakers[msg.sender].tokenIdsStaked.push(_tokenIds[i]);
+            timeOfStake[_tokenIds[i]] = block.timestamp;
+        }
+        stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        stakers[msg.sender].timeOfBreedingStart = block.timestamp;
+        // ToDo: Add transger logic here for birds + lock/burn elemental stone
+    }
+
+    // Check if user has any ERC721 Tokens Staked and if he tried to withdraw,
+    // calculate the rewards and store them in the unclaimedRewards and for each
+    // ERC721 Token in param: check if msg.sender is the original staker, decrement
+    // the amountStaked of the user and transfer the ERC721 token back to them.
+    function withdraw(uint256[] memory _tokenIds) external nonReentrant {
+        require(
+            stakers[msg.sender].tokenIdsStaked.length > 0,
+            "You have no tokens staked"
+        );
+        // uint256 rewards = calculateRewards(msg.sender);
+        // stakers[msg.sender].unclaimedRewards += rewards;
+        for (uint256 i; i < _tokenIds.length; ++i) {
+            require(
+                ownerOf(_tokenIds[i]) == msg.sender,
+                "You can only wihtdraw your own tokens!"
+            );
+            for (
+                uint256 j;
+                j < stakers[msg.sender].tokenIdsStaked.length;
+                ++j
+            ) {
+                if (stakers[msg.sender].tokenIdsStaked[j] == _tokenIds[i]) {
+                    stakers[msg.sender].tokenIdsStaked[j] = stakers[msg.sender]
+                        .tokenIdsStaked[
+                            stakers[msg.sender].tokenIdsStaked.length - 1
+                        ];
+                    stakers[msg.sender].tokenIdsStaked.pop();
+                }
+            }
+        }
+        stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        // ToDo: Add logic for token transfer back to owner
+    }
+
+    // Function called to breed and mint a new egg in Gen. 2 Collection
+    function breed(bool _mangoPayment) external {
+        require(
+            stakers[msg.sender].canBreed == true,
+            "You don't have enough staked birds to breed"
+        );
+        if (_mangoPayment) {
+            require(
+                block.timestamp >
+                    stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
+                "Not enought time passed!"
+            );
+            // ToDo: Add payment logic here
+        } else {
+            require(
+                block.timestamp >
+                    stakers[msg.sender].timeOfBreedingStart + timeToBreedFree,
+                "Not enough time passed!"
+            );
+        }
+        genOne.mintFromBreeding();
+        stakers[msg.sender].canBreed = false;
+    }
+
+    // Calculate rewards for param _staker by calculating the time passed
+    // since last update in hours and mulitplying it to ERC721 Tokens Staked
+    // and rewardsPerHour.
+    function calculateRewards(address _staker) internal view returns (uint256) {
+        uint256 _rewards = (((
+            ((block.timestamp - stakers[_staker].timeOfLastUpdate) *
+                stakers[msg.sender].tokenIdsStaked.length)
+        ) * rewardsPerHour) / 3600);
+        if (_rewards > rewardsPerHour * timeToBreedFree) {
+            return rewardsPerHour * timeToBreedFree;
+        } else {
+            return _rewards;
+        }
+    }
+
+    // Set the next gen SC interface:
+    function setNextGen(IRareBirds _address) public onlyOwner {
+        genOne = _address;
+    }
 
     // Modifier that ensures the maximum supply and
     // the maximum amount to mint per transaction

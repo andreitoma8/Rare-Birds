@@ -9,9 +9,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
-import "../interfaces/IElementalStones.sol";
 
-contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
+contract ElementalBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
@@ -20,8 +19,6 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     // Interfaces for ERC20 and ERC721
     IERC20 public rewardsToken;
     IRareBirds public genThree;
-    IRareBirds public elementalGenOne;
-    IElementalStones public elementalStones;
 
     // Address of the Gen. 1 Smart Contract
     address genOne;
@@ -122,7 +119,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken) ERC721("Rare Birds Gen. 2", "RB2") {
+    constructor(IERC20 _rewardToken) ERC721("Elemental Birds Gen. 1", "EB1") {
         rewardsToken = _rewardToken;
     }
 
@@ -445,16 +442,6 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     // Set the next gen SC interface:
     function setNextGen(IRareBirds _address) public onlyOwner {
         genThree = _address;
-    }
-
-    // Set the Elemental Stones Smart Contract
-    function setElementalStones(IElementalStones _address) external onlyOwner {
-        elementalStones = _address;
-    }
-
-    // Set the Elemental Birds Gen 1 Smart Contract
-    function setElementalBirdsGen1(IRareBirds _address) external onlyOwner {
-        elementalGenOne = _address;
     }
 
     // Changes the Revealed State
