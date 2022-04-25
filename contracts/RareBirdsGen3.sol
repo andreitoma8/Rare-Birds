@@ -271,7 +271,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Function called to breed and mint a new egg in Gen. 2 Collection
-    function breed(bool _mangoPayment) external {
+    function breed(bool _mangoPayment, uint256 _elemental) external {
         require(
             stakers[msg.sender].canBreed == true,
             "You don't have enough staked birds to breed"
@@ -290,7 +290,12 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
                 "Not enough time passed!"
             );
         }
-        genFour.mintFromBreeding();
+        if (_elemental == 0) {
+            genFour.mintFromBreeding();
+        } else {
+            elementalStones.burn(_elemental);
+            elementalGenOne.mintFromBreeding();
+        }
         stakers[msg.sender].timeOfBreedingStart = block.timestamp;
     }
 
