@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
 
@@ -51,11 +52,38 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     // The URI for your Hidden Metadata
     string internal hiddenMetadataUri;
 
-    // The maximum supply of your collection
-    uint256 public maxSupply;
+    // Price of one NFT
+    uint256 public cost;
+
+    // The maximum supply of your collection for sale
+    uint256 public maxSupplyBuy;
+
+    // The amount of of tokens minted by buying
+    uint256 public mintedFromBuy;
+
+    // The maximum mint amount allowed per transaction
+    uint256 public maxMintAmountPerTx;
+
+    // Maximum number of mints from breeding
+    uint256 public maxSupplyBree;
+
+    // The amount of tokens minted from breeding
+    uint256 public mintedFromBreed;
+
+    // The paused state for minting
+    bool public paused = true;
 
     // The revealed state for Tokens Metadata
     bool public revealed = false;
+
+    // Presale state
+    bool public presale = false;
+
+    // The Merkle Root (more info in README file)
+    bytes32 internal merkleRoot;
+
+    // Mapping of address to bool that determins wether the address already claimed the whitelist mint
+    mapping(address => bool) public whitelistClaimed;
 
     // Mapping of tokenID to time of Stake
     mapping(uint256 => uint256) public timeOfStake;
@@ -91,14 +119,11 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken, address _genOne)
-        ERC721("Rare Birds", "BIRDS")
-    {
+    constructor(IERC20 _rewardToken) ERC721("Rare Birds", "BIRDS") {
         rewardsToken = _rewardToken;
-        genOne = _genOne;
     }
 
-    // Staking function
+    // Staking function.
     function stake(uint256[] calldata _tokenIds) public nonReentrant {
         if (stakers[msg.sender].tokenIdsStaked.length > 0) {
             uint256 rewards = calculateRewards(msg.sender);
@@ -171,6 +196,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
             nfts[_tokenIds[i]].staked = false;
         }
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
+        //
         if (stakers[msg.sender].tokenIdsStaked.length < 2) {
             stakers[msg.sender].canBreed = false;
         } else {
@@ -193,6 +219,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         }
     }
 
+    // Function called to turn egg into bird
     function hatchEgg(uint256 _tokenId, bool _mangoPayment) external {
         require(nfts[_tokenId].staked == true, "Egg not staked");
         require(!nfts[_tokenId].hatched, "You already have a bird!");
@@ -235,6 +262,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         }
     }
 
+    // Function called to breed and mint a new egg in Gen. 2 Collection
     function breed(bool _mangoPayment) external {
         require(
             stakers[msg.sender].canBreed == true,
@@ -258,30 +286,74 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         stakers[msg.sender].canBreed = false;
     }
 
+    // Modifier that ensures the maximum supply and
+    // the maximum amount to mint per transaction
+    modifier mintCompliance(uint256 _mintAmount) {
+        require(
+            _mintAmount > 0 && _mintAmount <= maxMintAmountPerTx,
+            "Invalid mint amount!"
+        );
+        require(
+            supply.current() + _mintAmount <= maxSupplyBuy,
+            "Max supply exceeded!"
+        );
+        _;
+    }
+
     // Returns the current supply of the collection
     function totalSupply() public view returns (uint256) {
         return supply.current();
     }
 
     // Mint function
-    function mint(uint256 _mintAmount) public payable {
+    function mintFromBreeding() public payable {
         require(msg.sender == genOne, "Only Gen 1 SC can mint!");
+        mintedFromBreed++;
         require(
-            supply.current() + _mintAmount <= maxSupply,
-            "Max supply exceeded!"
+            mintedFromBreed <= maxSupplyBree,
+            "All the tokens available trough breeding have been minted!"
         );
         _mintLoop(msg.sender, 1);
+    }
+
+    // Mint function
+    function mint(uint256 _mintAmount)
+        public
+        payable
+        mintCompliance(_mintAmount)
+    {
+        require(!paused, "The contract is paused!");
+        // ToDo: Add payment logic here
+        _mintLoop(msg.sender, _mintAmount);
+    }
+
+    // The whitelist mint function
+    // Can only be called once per address
+    // _merkleProof = Hex proof generated by Merkle Tree for whitelist verification,
+    //  should be generated by website (more info in README file)
+    function whitelistMint(uint256 _mintAmount, bytes32[] calldata _merkleProof)
+        public
+        payable
+        mintCompliance(_mintAmount)
+    {
+        require(presale, "Presale is not active.");
+        require(!whitelistClaimed[msg.sender], "Address has already claimed.");
+        require(_mintAmount < 3);
+        bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
+        require(
+            MerkleProof.verify(_merkleProof, merkleRoot, leaf),
+            "Invalid proof"
+        );
+        whitelistClaimed[msg.sender] = true;
+        _mintLoop(msg.sender, _mintAmount);
     }
 
     // Mint function for owner that allows for free minting for a specified address
     function mintForAddress(uint256 _mintAmount, address _receiver)
         public
+        mintCompliance(_mintAmount)
         onlyOwner
     {
-        require(
-            supply.current() + _mintAmount <= maxSupply,
-            "Max supply exceeded!"
-        );
         _mintLoop(_receiver, _mintAmount);
     }
 
@@ -320,7 +392,8 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         uint256 ownedTokenIndex = 0;
 
         while (
-            ownedTokenIndex < ownerTokenCount && currentTokenId <= maxSupply
+            ownedTokenIndex < ownerTokenCount &&
+            currentTokenId <= (maxSupplyBree + maxSupplyBuy)
         ) {
             address currentTokenOwner = ownerOf(currentTokenId);
 
@@ -371,6 +444,19 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         revealed = _state;
     }
 
+    // Set the mint cost of one NFT
+    function setCost(uint256 _cost) public onlyOwner {
+        cost = _cost;
+    }
+
+    // Set the maximum mint amount per transaction
+    function setMaxMintAmountPerTx(uint256 _maxMintAmountPerTx)
+        public
+        onlyOwner
+    {
+        maxMintAmountPerTx = _maxMintAmountPerTx;
+    }
+
     // Set the hidden metadata URI
     function setHiddenMetadataUri(string memory _hiddenMetadataUri)
         public
@@ -394,7 +480,22 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         uriSuffix = _uriSuffix;
     }
 
-    // Withdraw ETH after sale
+    // Change paused state for main minting
+    function setPaused(bool _state) public onlyOwner {
+        paused = _state;
+    }
+
+    // Change paused state of minting for presale
+    function setPresale(bool _bool) public onlyOwner {
+        presale = _bool;
+    }
+
+    // Set the Merkle Root for whitelist verification(more info in README file)
+    function setMerkleRoot(bytes32 _newMerkleRoot) public onlyOwner {
+        merkleRoot = _newMerkleRoot;
+    }
+
+    // Withdraw Mango after sale
     function withdraw() public onlyOwner {
         // ToDo: Add mango withdraw logic here
     }

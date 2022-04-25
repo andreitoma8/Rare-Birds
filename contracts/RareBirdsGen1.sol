@@ -300,8 +300,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(!paused, "The contract is paused!");
-        require(msg.value >= cost * _mintAmount, "Insufficient funds!");
-
+        // ToDo: Add payment logic here
         _mintLoop(msg.sender, _mintAmount);
     }
 
@@ -315,6 +314,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(presale, "Presale is not active.");
+        // ToDo: Add payment logic here
         require(!whitelistClaimed[msg.sender], "Address has already claimed.");
         require(_mintAmount < 3);
         bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
