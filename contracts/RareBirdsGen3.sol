@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
 import "../interfaces/IElementalStones.sol";
 
-contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
+contract RareBirdsGenThree is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
@@ -56,19 +56,19 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     string internal hiddenMetadataUri;
 
     // Price of one NFT
-    uint256 public cost;
+    uint256 public cost = 10 * 10**18;
 
     // The maximum supply of your collection for sale
-    uint256 public maxSupplyBuy;
+    uint256 public maxSupplyBuy = 5000;
 
     // The amount of of tokens minted by buying
     uint256 public mintedFromBuy;
 
     // The maximum mint amount allowed per transaction
-    uint256 public maxMintAmountPerTx;
+    uint256 public maxMintAmountPerTx = 5;
 
     // Maximum number of mints from breeding
-    uint256 public maxSupplyBree;
+    uint256 public maxSupplyBree = 5000;
 
     // The amount of tokens minted from breeding
     uint256 public mintedFromBreed;
@@ -122,8 +122,11 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken) ERC721("Rare Birds Gen. 3", "RB3") {
+    constructor(IERC20 _rewardToken, address _genTwo)
+        ERC721("Rare Birds Gen. 3", "RB3")
+    {
         rewardsToken = _rewardToken;
+        genTwo = _genTwo;
     }
 
     // Staking function.
@@ -228,13 +231,13 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         require(!nfts[_tokenId].hatched, "You already have a bird!");
         if (_mangoPayment) {
             require(
-                block.timestamp > timeOfStake[_tokenId] + timeToHatchMango,
+                block.timestamp >= timeOfStake[_tokenId] + timeToHatchMango,
                 "You need to wait more for egg to hatch!"
             );
-            // ToDo: Add payment logic here
+            rewardsToken.transferFrom(msg.sender, address(this), 1000 * 10**18);
         } else {
             require(
-                block.timestamp > timeOfStake[_tokenId] + timeToHatchFree,
+                block.timestamp >= timeOfStake[_tokenId] + timeToHatchFree,
                 "You need to wait more for egg to hatch!"
             );
         }
@@ -270,31 +273,53 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         return nfts[_tokenId].hatched;
     }
 
+    // The time of stake for Token Id, returns 0 if tokenId is hatched
+    function timeOfStartHatch(uint256 _tokenId)
+        external
+        view
+        returns (uint256)
+    {
+        if (nfts[_tokenId].hatched) {
+            return 0;
+        } else {
+            return timeOfStake[_tokenId];
+        }
+    }
+
+    // Function that returns the time a user has started the breeding process, for frontend
+    function breedingState(address _user)
+        external
+        view
+        returns (bool, uint256)
+    {
+        return (stakers[_user].canBreed, stakers[_user].timeOfBreedingStart);
+    }
+
     // Function called to breed and mint a new egg in Gen. 2 Collection
-    function breed(bool _mangoPayment, uint256 _elemental) external {
+    function breed(uint256 _elemental) external {
         require(
             stakers[msg.sender].canBreed == true,
             "You don't have enough staked birds to breed"
         );
-        if (_mangoPayment) {
-            require(
-                block.timestamp >
-                    stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
-                "Not enought time passed!"
-            );
-            // ToDo: Add payment logic here
-        } else {
-            require(
-                block.timestamp >
-                    stakers[msg.sender].timeOfBreedingStart + timeToBreedFree,
-                "Not enough time passed!"
-            );
-        }
+        // if (_mangoPayment) {
+        //     require(
+        //         block.timestamp >
+        //             stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
+        //         "Not enought time passed!"
+        //     );
+        //     // ToDo: Add payment logic here
+        // } else {
+        require(
+            block.timestamp >
+                stakers[msg.sender].timeOfBreedingStart + timeToBreedFree,
+            "Not enough time passed!"
+        );
+        // }
         if (_elemental == 0) {
-            genFour.mintFromBreeding();
+            genFour.mintFromBreeding(msg.sender);
         } else {
             elementalStones.burn(_elemental);
-            elementalGenOne.mintFromBreeding();
+            elementalGenOne.mintFromBreeding(msg.sender);
         }
         stakers[msg.sender].timeOfBreedingStart = block.timestamp;
     }
@@ -319,14 +344,14 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Mint function
-    function mintFromBreeding() public {
+    function mintFromBreeding(address _to) public {
         require(msg.sender == genTwo, "Only Gen 1 SC can mint!");
         mintedFromBreed++;
         require(
             mintedFromBreed <= maxSupplyBree,
             "All the tokens available trough breeding have been minted!"
         );
-        _mintLoop(msg.sender, 1);
+        _mintLoop(_to, 1);
     }
 
     // Mint function
@@ -336,7 +361,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(!paused, "The contract is paused!");
-        // ToDo: Add payment logic here
+        rewardsToken.transferFrom(msg.sender, address(this), cost);
         _mintLoop(msg.sender, _mintAmount);
     }
 
@@ -352,6 +377,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         require(presale, "Presale is not active.");
         require(!whitelistClaimed[msg.sender], "Address has already claimed.");
         require(_mintAmount < 3);
+        rewardsToken.transferFrom(msg.sender, address(this), cost);
         bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
         require(
             MerkleProof.verify(_merkleProof, merkleRoot, leaf),
@@ -379,7 +405,7 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
         require(rewards > 0, "You have no rewards to claim");
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
         stakers[msg.sender].unclaimedRewards = 0;
-        // ToDo: Add payment logic here
+        rewardsToken.transferFrom(address(this), msg.sender, rewards);
     }
 
     // Returns the information of _user address deposit:
@@ -519,8 +545,10 @@ contract RareBirdsGenTwo is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Withdraw Mango after sale
-    function withdraw() public onlyOwner {
-        // ToDo: Add mango withdraw logic here
+    function withdraw(uint256 _amount) public onlyOwner {
+        uint256 maxAmount = rewardsToken.balanceOf(address(this));
+        require(_amount <= maxAmount, "You tried to withdraw too much Mingo");
+        rewardsToken.transferFrom(address(this), owner(), _amount);
     }
 
     // Helper function

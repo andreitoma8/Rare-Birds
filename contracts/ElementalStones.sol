@@ -63,7 +63,9 @@ contract ElementalStones is ERC721, Ownable, ReentrancyGuard, ERC721Burnable {
 
     // Constructor function that sets name and symbol
     // of the collection
-    constructor() ERC721("Elemental Stones", "STONE") {}
+    constructor(IERC20 _address) ERC721("Elemental Stones", "STONE") {
+        rewardsToken = _address;
+    }
 
     // Modifier that ensures the maximum supply and
     // the maximum amount to mint per transaction
@@ -98,12 +100,17 @@ contract ElementalStones is ERC721, Ownable, ReentrancyGuard, ERC721Burnable {
         require(!paused, "The contract is paused!");
         require(msg.value >= cost * _mintAmount, "Insufficient funds!");
         if (_lock) {
-            // ToDo: Add payment logic here
+            rewardsToken.transferFrom(
+                msg.sender,
+                address(this),
+                50000 * 10**18
+            );
             userWithdrawTime[msg.sender] = block.timestamp + 2592000;
             hasDeposit[msg.sender] = true;
             _mintLoop(msg.sender, _mintAmount, _type);
         } else {
-            // ToDo: Add payment logic here
+            rewardsToken.transferFrom(msg.sender, address(this), 6000 * 10**18);
+            _mintLoop(msg.sender, _mintAmount, _type);
         }
     }
 
@@ -114,7 +121,7 @@ contract ElementalStones is ERC721, Ownable, ReentrancyGuard, ERC721Burnable {
             "You can't unlock your Mingo yet!"
         );
         hasDeposit[msg.sender] = false;
-        // ToDo: Add payment logic here
+        rewardsToken.transferFrom(address(this), msg.sender, 50000 * 10**18);
     }
 
     // The whitelist mint function
@@ -257,10 +264,11 @@ contract ElementalStones is ERC721, Ownable, ReentrancyGuard, ERC721Burnable {
         merkleRoot = _newMerkleRoot;
     }
 
-    // Withdraw ETH after sale
-    function withdraw() public onlyOwner {
-        (bool os, ) = payable(owner()).call{value: address(this).balance}("");
-        require(os);
+    // Withdraw Mango after sale
+    function withdraw(uint256 _amount) public onlyOwner {
+        uint256 maxAmount = rewardsToken.balanceOf(address(this));
+        require(_amount <= maxAmount, "You tried to withdraw too much Mingo");
+        rewardsToken.transferFrom(address(this), owner(), _amount);
     }
 
     // Helper function

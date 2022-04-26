@@ -30,10 +30,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     uint256 public constant timeToHatchMango = 604800;
 
     // Time to breed without Mango payment
-    uint256 public constant timeToBreedFree = 2592000;
-
-    // Time to breed with Mango payment
-    uint256 public constant timeToBreedMango = 604800;
+    uint256 public constant timeToBreed = 2592000;
 
     // Rewards per hour per token deposited in wei.
     // Rewards are cumulated once every hour.
@@ -53,13 +50,13 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     string internal hiddenMetadataUri;
 
     // Price of one NFT
-    uint256 public cost;
+    uint256 public cost = 10 * 10**18;
 
     // The maximum supply of your collection
-    uint256 public maxSupply;
+    uint256 public maxSupply = 10000;
 
     // The maximum mint amount allowed per transaction
-    uint256 public maxMintAmountPerTx;
+    uint256 public maxMintAmountPerTx = 5;
 
     // The paused state for minting
     bool public paused = true;
@@ -216,13 +213,13 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         require(!nfts[_tokenId].hatched, "You already have a bird!");
         if (_mangoPayment) {
             require(
-                block.timestamp > timeOfStake[_tokenId] + timeToHatchMango,
+                block.timestamp >= timeOfStake[_tokenId] + timeToHatchMango,
                 "You need to wait more for egg to hatch!"
             );
-            // ToDo: Add payment logic here
+            rewardsToken.transferFrom(msg.sender, address(this), 1000 * 10**18);
         } else {
             require(
-                block.timestamp > timeOfStake[_tokenId] + timeToHatchFree,
+                block.timestamp >= timeOfStake[_tokenId] + timeToHatchFree,
                 "You need to wait more for egg to hatch!"
             );
         }
@@ -258,33 +255,55 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         return nfts[_tokenId].hatched;
     }
 
+    // The time of stake for Token Id, returns 0 if tokenId is hatched
+    function timeOfStartHatch(uint256 _tokenId)
+        external
+        view
+        returns (uint256)
+    {
+        if (nfts[_tokenId].hatched) {
+            return 0;
+        } else {
+            return timeOfStake[_tokenId];
+        }
+    }
+
+    // Function that returns the time a user has started the breeding process, for frontend
+    function breedingState(address _user)
+        external
+        view
+        returns (bool, uint256)
+    {
+        return (stakers[_user].canBreed, stakers[_user].timeOfBreedingStart);
+    }
+
     // Function called to breed and mint a new egg in Gen. 2 Collection
-    function breed(bool _mangoPayment, uint256 _elemental) external {
+    function breed(uint256 _elemental) external {
         require(
             stakers[msg.sender].canBreed == true,
             "You don't have enough staked birds to breed"
         );
-        if (_mangoPayment) {
-            require(
-                block.timestamp >
-                    stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
-                "Not enought time passed!"
-            );
-            // ToDo: Add payment logic here
-        } else {
-            require(
-                block.timestamp >
-                    stakers[msg.sender].timeOfBreedingStart + timeToBreedFree,
-                "Not enough time passed!"
-            );
-        }
+        // if (_mangoPayment) {
+        //     require(
+        //         block.timestamp >
+        //             stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
+        //         "Not enought time passed!"
+        //     );
+        //     // ToDo: Add payment logic here
+        // } else {
+        require(
+            block.timestamp >
+                stakers[msg.sender].timeOfBreedingStart + timeToBreed,
+            "Not enough time passed!"
+        );
+        // }
+        stakers[msg.sender].timeOfBreedingStart = block.timestamp;
         if (_elemental == 0) {
-            genTwo.mintFromBreeding();
+            genTwo.mintFromBreeding(msg.sender);
         } else {
             elementalStones.burn(_elemental);
-            elementalGenOne.mintFromBreeding();
+            elementalGenOne.mintFromBreeding(msg.sender);
         }
-        stakers[msg.sender].timeOfBreedingStart = block.timestamp;
     }
 
     // Modifier that ensures the maximum supply and
@@ -309,7 +328,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Mint function
     function mint(uint256 _mintAmount) public mintCompliance(_mintAmount) {
         require(!paused, "The contract is paused!");
-        // ToDo: Add payment logic here
+        rewardsToken.transferFrom(msg.sender, address(this), cost);
         _mintLoop(msg.sender, _mintAmount);
     }
 
@@ -323,7 +342,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(presale, "Presale is not active.");
-        // ToDo: Add payment logic here
+        rewardsToken.transferFrom(msg.sender, address(this), cost);
         require(!whitelistClaimed[msg.sender], "Address has already claimed.");
         require(_mintAmount < 3);
         bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
@@ -353,7 +372,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         require(rewards > 0, "You have no rewards to claim");
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
         stakers[msg.sender].unclaimedRewards = 0;
-        // ToDo: Add payment logic here
+        rewardsToken.transferFrom(address(this), msg.sender, rewards);
     }
 
     // Returns the information of _user address deposit:
@@ -492,8 +511,10 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Withdraw Mango after sale
-    function withdraw() public onlyOwner {
-        // ToDo: Add mango withdraw logic here
+    function withdraw(uint256 _amount) public onlyOwner {
+        uint256 maxAmount = rewardsToken.balanceOf(address(this));
+        require(_amount <= maxAmount, "You tried to withdraw too much Mingo");
+        rewardsToken.transferFrom(address(this), owner(), _amount);
     }
 
     // Helper function
