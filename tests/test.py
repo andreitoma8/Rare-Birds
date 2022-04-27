@@ -92,3 +92,8 @@ def test_main():
     rare_one.breed(1, {"from": owner})
     tokens_of_owner = elem_one.walletOfOwner(owner.address, {"from": owner})
     assert tokens_of_owner[0] == 1
+    # Assert rewards accumulation
+    stake_info = rare_one.userStakeInfo(owner.address, {"from": owner})
+    print(stake_info)
+    print((2593000 * 2 * 100000) * 3 / 3600)
+    assert stake_info[0] >= (2593000 * 2 * 100000) * 3 / 3600
