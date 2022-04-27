@@ -23,14 +23,17 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     IRareBirds public elementalGenOne;
     IElementalStones public elementalStones;
 
-    // Time to hatch without Mango payment
+    // Time to hatch without Mingo payment
     uint256 public constant timeToHatchFree = 2592000;
 
-    // Time to hatch with Mango payment
-    uint256 public constant timeToHatchMango = 604800;
+    // Time to hatch with Mingo payment
+    uint256 public constant timeToHatchMingo = 604800;
 
-    // Time to breed without Mango payment
-    uint256 public constant timeToBreed = 2592000;
+    // Time to breed without Mingo payment
+    uint256 public constant timeToBreedMingo = 604800;
+
+    // Time to breed without Mingo payment
+    uint256 public constant timeToBreedFree = 2592000;
 
     // Rewards per hour per token deposited in wei.
     // Rewards are cumulated once every hour.
@@ -208,12 +211,12 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Function called to turn egg into bird
-    function hatchEgg(uint256 _tokenId, bool _mangoPayment) external {
+    function hatchEgg(uint256 _tokenId, bool _mingoPayment) external {
         require(nfts[_tokenId].staked == true, "Egg not staked");
         require(!nfts[_tokenId].hatched, "You already have a bird!");
-        if (_mangoPayment) {
+        if (_mingoPayment) {
             require(
-                block.timestamp >= timeOfStake[_tokenId] + timeToHatchMango,
+                block.timestamp >= timeOfStake[_tokenId] + timeToHatchMingo,
                 "You need to wait more for egg to hatch!"
             );
             rewardsToken.transferFrom(msg.sender, address(this), 1000 * 10**18);
@@ -278,25 +281,25 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Function called to breed and mint a new egg in Gen. 2 Collection
-    function breed(uint256 _elemental) external {
+    function breed(uint256 _elemental, bool _mingoPayment) external {
         require(
             stakers[msg.sender].canBreed == true,
             "You don't have enough staked birds to breed"
         );
-        // if (_mangoPayment) {
-        //     require(
-        //         block.timestamp >
-        //             stakers[msg.sender].timeOfBreedingStart + timeToBreedMango,
-        //         "Not enought time passed!"
-        //     );
-        //     // ToDo: Add payment logic here
-        // } else {
-        require(
-            block.timestamp >
-                stakers[msg.sender].timeOfBreedingStart + timeToBreed,
-            "Not enough time passed!"
-        );
-        // }
+        if (_mingoPayment) {
+            require(
+                block.timestamp >
+                    stakers[msg.sender].timeOfBreedingStart + timeToBreedMingo,
+                "Not enought time passed!"
+            );
+            rewardsToken.transferFrom(msg.sender, address(this), 1000 * 10**18);
+        } else {
+            require(
+                block.timestamp >
+                    stakers[msg.sender].timeOfBreedingStart + timeToBreedFree,
+                "Not enough time passed!"
+            );
+        }
         stakers[msg.sender].timeOfBreedingStart = block.timestamp;
         if (_elemental == 0) {
             genTwo.mintFromBreeding(msg.sender);
@@ -372,7 +375,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         require(rewards > 0, "You have no rewards to claim");
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
         stakers[msg.sender].unclaimedRewards = 0;
-        rewardsToken.transferFrom(address(this), msg.sender, rewards);
+        rewardsToken.transfer(msg.sender, rewards);
     }
 
     // Returns the information of _user address deposit:
@@ -510,7 +513,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         merkleRoot = _newMerkleRoot;
     }
 
-    // Withdraw Mango after sale
+    // Withdraw Mingo after sale
     function withdraw(uint256 _amount) public onlyOwner {
         uint256 maxAmount = rewardsToken.balanceOf(address(this));
         require(_amount <= maxAmount, "You tried to withdraw too much Mingo");
@@ -539,7 +542,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         }
     }
 
-    // Return available Mango rewards for user.
+    // Return available Mingo rewards for user.
     function availableRewards(address _user) internal view returns (uint256) {
         uint256 _rewards = stakers[_user].unclaimedRewards +
             calculateRewards(_user);

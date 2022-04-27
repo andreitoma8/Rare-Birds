@@ -35,9 +35,9 @@ def test_main():
     with brownie.reverts():
         rare_one.hatchEgg(1, False, {"from": owner})
     with brownie.reverts():
-        rare_one.breed(0, {"from": owner})
+        rare_one.breed(0, False, {"from": owner})
     with brownie.reverts():
-        rare_one.breed(1, {"from": owner})
+        rare_one.breed(1, False, {"from": owner})
     # Forward in time
     chain.mine(blocks=100, timedelta=2593000)
     # Assert rewards accumulation
@@ -74,9 +74,9 @@ def test_main():
     )
     rare_one.setElementalBirdsGen1(elem_one.address, {"from": owner})
     # Breed for Gen. 2
-    rare_one.breed(0, {"from": owner})
+    rare_one.breed(0, False, {"from": owner})
     with brownie.reverts():
-        rare_one.breed(0, {"from": owner})
+        rare_one.breed(0, False, {"from": owner})
     balance_gen_2 = rare_two.balanceOf(owner.address, {"from": owner})
     assert balance_gen_2 == 1
     # Forward in time
@@ -89,7 +89,7 @@ def test_main():
     print(tokens_of_owner)
     # Breed for Elemental Birds Gen. 1
     stones.approve(rare_one.address, 1, {"from": owner})
-    rare_one.breed(1, {"from": owner})
+    rare_one.breed(1, False, {"from": owner})
     tokens_of_owner = elem_one.walletOfOwner(owner.address, {"from": owner})
     assert tokens_of_owner[0] == 1
     # Assert rewards accumulation
@@ -97,3 +97,38 @@ def test_main():
     print(stake_info)
     print((2593000 * 2 * 100000) * 3 / 3600)
     assert stake_info[0] >= (2593000 * 2 * 100000) * 3 / 3600
+    # Assert claiming mingo
+    mingo.mint(rare_one.address, {"from": owner})
+    balance_before = mingo.balanceOf(owner.address, {"from": owner})
+    rare_one.claimRewards({"from": owner})
+    balance_after = mingo.balanceOf(owner.address, {"from": owner})
+    assert balance_after >= balance_before + stake_info[0]
+    # Assert Gen. 2 is egg
+    token_1_state = rare_two.isBird(1, {"from": owner})
+    assert token_1_state == False
+    # Stake
+    stake = rare_two.stake([1], {"from": owner})
+    stake_info = rare_two.userStakeInfo(owner.address, {"from": owner})
+    assert stake_info[1] == [1]
+    # Assert error if trying to hash or breed
+    with brownie.reverts():
+        rare_two.hatchEgg(1, True, {"from": owner})
+    with brownie.reverts():
+        rare_two.hatchEgg(1, False, {"from": owner})
+    with brownie.reverts():
+        rare_two.breed(0, False, {"from": owner})
+    with brownie.reverts():
+        rare_two.breed(1, False, {"from": owner})
+    # Forward in time
+    chain.mine(blocks=100, timedelta=2593000)
+    # Assert rewards accumulation
+    stake_info = rare_two.userStakeInfo(owner.address, {"from": owner})
+    print(stake_info)
+    print((2593000 * 100000) / 3600)
+    assert stake_info[0] >= (2593000 * 100000) / 3600
+    # Assert hatching
+    hatch = rare_two.hatchEgg(1, False, {"from": owner})
+    breeding_state = rare_two.breedingState(owner.address, {"from": owner})
+    assert breeding_state[0] == False
+    hatched_state_1 = rare_two.isBird(1, {"from": owner})
+    assert hatched_state_1 == True
