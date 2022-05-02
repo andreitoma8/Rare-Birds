@@ -84,7 +84,7 @@ def test_main():
     # Mint Elemental Stone
     approve = mingo.approve(stones.address, 100000 * 10 ** 18, {"from": owner})
     stones.setPaused(False, {"from": owner})
-    stones.mint(1, 1, False, {"from": owner})
+    stones.mint(1, False, {"from": owner})
     tokens_of_owner = stones.walletOfOwner(owner.address, {"from": owner})
     print(tokens_of_owner)
     # Breed for Elemental Birds Gen. 1
