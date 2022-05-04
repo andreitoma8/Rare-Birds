@@ -9,9 +9,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
-import "../interfaces/IElementalStones.sol";
 
-contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
+contract ElementalBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
@@ -20,8 +19,9 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Interfaces for ERC20 and ERC721
     IERC20 public rewardsToken;
     IRareBirds public genTwo;
-    IRareBirds public elementalGenOne;
-    IElementalStones public elementalStones;
+
+    // Address of the Gen. 1 Smart Contract
+    address genOne;
 
     // Time to hatch without Mingo payment
     uint256 public constant timeToHatchFree = 2592000;
@@ -30,10 +30,10 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     uint256 public constant timeToHatchMingo = 604800;
 
     // Time to breed without Mingo payment
-    uint256 public constant timeToBreedMingo = 604800;
-
-    // Time to breed without Mingo payment
     uint256 public constant timeToBreedFree = 2592000;
+
+    // Time to breed with Mingo payment
+    uint256 public constant timeToBreedMingo = 604800;
 
     // Rewards per hour per token deposited in wei.
     // Rewards are cumulated once every hour.
@@ -55,11 +55,20 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Price of one NFT
     uint256 public cost = 10 * 10**18;
 
-    // The maximum supply of your collection
-    uint256 public maxSupply = 10000;
+    // The maximum supply of your collection for sale
+    uint256 public maxSupplyBuy = 5000;
+
+    // The amount of of tokens minted by buying
+    uint256 public mintedFromBuy;
 
     // The maximum mint amount allowed per transaction
     uint256 public maxMintAmountPerTx = 5;
+
+    // Maximum number of mints from breeding
+    uint256 public maxSupplyBree = 5000;
+
+    // The amount of tokens minted from breeding
+    uint256 public mintedFromBreed;
 
     // The paused state for minting
     bool public paused = true;
@@ -110,8 +119,11 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken) ERC721("Rare Birds Gen. 1", "RB1") {
+    constructor(IERC20 _rewardToken, address _genOne)
+        ERC721("Elemental Birds Gen. 1", "EB1")
+    {
         rewardsToken = _rewardToken;
+        genOne = _genOne;
     }
 
     // Staking function.
@@ -281,7 +293,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Function called to breed and mint a new egg in Gen. 2 Collection
-    function breed(uint256 _elemental, bool _mingoPayment) external {
+    function breed(bool _mingoPayment) external {
         require(
             stakers[msg.sender].canBreed == true,
             "You don't have enough staked birds to breed"
@@ -300,13 +312,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                 "Not enough time passed!"
             );
         }
+        genTwo.mintFromBreeding(msg.sender);
         stakers[msg.sender].timeOfBreedingStart = block.timestamp;
-        if (_elemental == 0) {
-            genTwo.mintFromBreeding(msg.sender);
-        } else {
-            elementalStones.burn(_elemental);
-            elementalGenOne.mintFromBreeding(msg.sender);
-        }
     }
 
     // Modifier that ensures the maximum supply and
@@ -317,7 +324,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
             "Invalid mint amount!"
         );
         require(
-            supply.current() + _mintAmount <= maxSupply,
+            supply.current() + _mintAmount <= maxSupplyBuy,
             "Max supply exceeded!"
         );
         _;
@@ -329,13 +336,24 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Mint function
-    function mint(uint256 _mintAmount) public mintCompliance(_mintAmount) {
-        require(!paused, "The contract is paused!");
-        rewardsToken.transferFrom(
-            msg.sender,
-            address(this),
-            cost * _mintAmount
+    function mintFromBreeding(address _to) public payable {
+        require(msg.sender == genOne, "Only Gen 1 SC can mint!");
+        mintedFromBreed++;
+        require(
+            mintedFromBreed <= maxSupplyBree,
+            "All the tokens available trough breeding have been minted!"
         );
+        _mintLoop(_to, 1);
+    }
+
+    // Mint function
+    function mint(uint256 _mintAmount)
+        public
+        payable
+        mintCompliance(_mintAmount)
+    {
+        require(!paused, "The contract is paused!");
+        rewardsToken.transferFrom(msg.sender, address(this), cost);
         _mintLoop(msg.sender, _mintAmount);
     }
 
@@ -349,9 +367,9 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(presale, "Presale is not active.");
-        rewardsToken.transferFrom(msg.sender, address(this), cost);
         require(!whitelistClaimed[msg.sender], "Address has already claimed.");
         require(_mintAmount < 3);
+        rewardsToken.transferFrom(msg.sender, address(this), cost);
         bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
         require(
             MerkleProof.verify(_merkleProof, merkleRoot, leaf),
@@ -379,7 +397,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         require(rewards > 0, "You have no rewards to claim");
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
         stakers[msg.sender].unclaimedRewards = 0;
-        rewardsToken.transfer(msg.sender, rewards);
+        rewardsToken.transferFrom(address(this), msg.sender, rewards);
     }
 
     // Returns the information of _user address deposit:
@@ -405,7 +423,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         uint256 ownedTokenIndex = 0;
 
         while (
-            ownedTokenIndex < ownerTokenCount && currentTokenId <= maxSupply
+            ownedTokenIndex < ownerTokenCount &&
+            currentTokenId <= (maxSupplyBree + maxSupplyBuy)
         ) {
             address currentTokenOwner = ownerOf(currentTokenId);
 
@@ -446,19 +465,9 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                 : "";
     }
 
-    // Set the next gen Smart Contract
+    // Set the next gen SC interface:
     function setNextGen(IRareBirds _address) public onlyOwner {
         genTwo = _address;
-    }
-
-    // Set the Elemental Stones Smart Contract
-    function setElementalStones(IElementalStones _address) external onlyOwner {
-        elementalStones = _address;
-    }
-
-    // Set the Elemental Birds Gen 1 Smart Contract
-    function setElementalBirdsGen1(IRareBirds _address) external onlyOwner {
-        elementalGenOne = _address;
     }
 
     // Changes the Revealed State

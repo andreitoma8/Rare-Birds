@@ -10,15 +10,22 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../interfaces/IRareBirds.sol";
 import "../interfaces/IElementalStones.sol";
+import "./hip-206/HederaTokenService.sol";
+import "./hip-206/HederaResponseCodes.sol";
 
-contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
+contract RareBirdsGenOne is
+    ERC721,
+    Ownable,
+    ReentrancyGuard,
+    HederaTokenService
+{
     using Strings for uint256;
     using Counters for Counters.Counter;
 
     Counters.Counter private supply;
 
     // Interfaces for ERC20 and ERC721
-    IERC20 public rewardsToken;
+    address public mingoToken;
     IRareBirds public genTwo;
     IRareBirds public elementalGenOne;
     IElementalStones public elementalStones;
@@ -53,7 +60,7 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     string internal hiddenMetadataUri;
 
     // Price of one NFT
-    uint256 public cost = 10 * 10**18;
+    uint256 public cost = 10000;
 
     // The maximum supply of your collection
     uint256 public maxSupply = 10000;
@@ -110,8 +117,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Constructor function that sets name and symbol
     // of the collection, cost, max supply and the maximum
     // amount a user can mint per transaction
-    constructor(IERC20 _rewardToken) ERC721("Rare Birds Gen. 1", "RB1") {
-        rewardsToken = _rewardToken;
+    constructor(address _rewardToken) ERC721("Rare Birds Gen. 1", "RB1") {
+        mingoToken = _rewardToken;
     }
 
     // Staking function.
@@ -219,7 +226,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                 block.timestamp >= timeOfStake[_tokenId] + timeToHatchMingo,
                 "You need to wait more for egg to hatch!"
             );
-            rewardsToken.transferFrom(msg.sender, address(this), 1000 * 10**18);
+            // ToDo: Add payment logic here: 1000 Mingo
+            tokenTransfer(msg.sender, address(this), 1000);
         } else {
             require(
                 block.timestamp >= timeOfStake[_tokenId] + timeToHatchFree,
@@ -292,7 +300,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
                     stakers[msg.sender].timeOfBreedingStart + timeToBreedMingo,
                 "Not enought time passed!"
             );
-            rewardsToken.transferFrom(msg.sender, address(this), 1000 * 10**18);
+            // ToDo: Add payment logic here 1000 mingo
+            tokenTransfer(msg.sender, address(this), 1000);
         } else {
             require(
                 block.timestamp >
@@ -331,10 +340,11 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     // Mint function
     function mint(uint256 _mintAmount) public mintCompliance(_mintAmount) {
         require(!paused, "The contract is paused!");
-        rewardsToken.transferFrom(
+        // ToDo: Add payment logic here cost * amount
+        tokenTransfer(
             msg.sender,
             address(this),
-            cost * _mintAmount
+            int64(uint64(cost * _mintAmount))
         );
         _mintLoop(msg.sender, _mintAmount);
     }
@@ -349,7 +359,12 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         mintCompliance(_mintAmount)
     {
         require(presale, "Presale is not active.");
-        rewardsToken.transferFrom(msg.sender, address(this), cost);
+        // ToDo: Add payment logic here cost * amount
+        tokenTransfer(
+            msg.sender,
+            address(this),
+            int64(uint64(cost * _mintAmount))
+        );
         require(!whitelistClaimed[msg.sender], "Address has already claimed.");
         require(_mintAmount < 3);
         bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
@@ -379,7 +394,8 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
         require(rewards > 0, "You have no rewards to claim");
         stakers[msg.sender].timeOfLastUpdate = block.timestamp;
         stakers[msg.sender].unclaimedRewards = 0;
-        rewardsToken.transfer(msg.sender, rewards);
+        // ToDo: Add payment logic here rewards
+        tokenTransfer(address(this), msg.sender, int64(uint64(rewards)));
     }
 
     // Returns the information of _user address deposit:
@@ -518,10 +534,11 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     }
 
     // Withdraw Mingo after sale
-    function withdraw(uint256 _amount) public onlyOwner {
-        uint256 maxAmount = rewardsToken.balanceOf(address(this));
-        require(_amount <= maxAmount, "You tried to withdraw too much Mingo");
-        rewardsToken.transferFrom(address(this), owner(), _amount);
+    function withdraw(int64 _amount) public onlyOwner {
+        // uint256 maxAmount = mingoToken.balanceOf(address(this));
+        // require(_amount <= maxAmount, "You tried to withdraw too much Mingo");
+        // ToDo: Add payment logic here
+        tokenTransfer(address(this), msg.sender, _amount);
     }
 
     // Helper function
@@ -578,5 +595,24 @@ contract RareBirdsGenOne is ERC721, Ownable, ReentrancyGuard {
     ) internal override {
         require(!nfts[tokenId].staked, "You can't transfer staked tokens!");
         super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    // Hedera helper functions
+
+    function tokenTransfer(
+        address _sender,
+        address _receiver,
+        int64 _amount
+    ) internal {
+        int256 response = HederaTokenService.transferToken(
+            mingoToken,
+            _sender,
+            _receiver,
+            _amount
+        );
+
+        if (response != HederaResponseCodes.SUCCESS) {
+            revert("Transfer Failed");
+        }
     }
 }
